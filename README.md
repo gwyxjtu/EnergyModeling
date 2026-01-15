@@ -2,6 +2,11 @@
 
 这是一个基于 **PyPSA** 和 **Streamlit** 开发的交互式综合能源系统 (IES) 建模与仿真平台。它支持多能（电、热、冷、氢）耦合系统的快速构建、运行优化和结果可视化。
 
+**👉 在线试用地址：[https://energymodeling-guoguo.streamlit.app/](https://energymodeling-guoguo.streamlit.app/)**
+
+
+
+
 ## 🌟 主要功能
 
 - **交互式建模**：通过 Web 界面勾选设备库中的组件，动态构建系统拓扑。
