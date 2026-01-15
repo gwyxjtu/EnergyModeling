@@ -170,14 +170,52 @@ class IESModel:
                 print(f"All optimization attempts failed: {e}")
         return success
 
+    def get_all_results(self):
+        """
+        汇总所有设备的运行结果
+        :return: 包含多个结果 DataFrame 的字典
+        """
+        results = {}
+        
+        # 1. 负荷数据
+        results['Loads'] = self.n.loads_t.p
+        
+        # 2. 发电机数据 (PV, Grid)
+        results['Generators'] = self.n.generators_t.p
+        
+        # 3. 链路数据 (EB, HP, Ely, FC)
+        # 包含输入 p0 和输出 p1 (以及 FC 的 p2)
+        links_res = pd.concat([
+            self.n.links_t.p0.add_suffix('_input'),
+            self.n.links_t.p1.add_suffix('_output')
+        ], axis=1)
+        if not self.n.links_t.p2.empty:
+            links_res = pd.concat([links_res, self.n.links_t.p2.add_suffix('_output2')], axis=1)
+        results['Links'] = links_res
+        
+        # 4. 储能数据 (Battery, H2 Storage)
+        results['Storage_Units'] = self.n.storage_units_t.p
+        results['Storage_SOC'] = self.n.storage_units_t.state_of_charge
+        
+        # 5. 母线电价 (边际成本)
+        results['Bus_Marginal_Prices'] = self.n.buses_t.marginal_price
+        
+        return results
+
     def plot_results(self, save_path='ies_results.png', show=True):
+        # 设置全局字体为 Times New Roman
+        plt.rcParams['font.family'] = 'Times New Roman'
+        plt.rcParams['text.color'] = 'black'
+        plt.rcParams['axes.labelcolor'] = 'black'
+        plt.rcParams['xtick.color'] = 'black'
+        plt.rcParams['ytick.color'] = 'black'
+        
         fig = plt.figure(figsize=(15, 18))
         
         # 子图 1: 电力平衡
-        # ... (保持之前的绘图代码)
         plt.subplot(5, 1, 1)
         if not self.n.generators_t.p.empty:
-            self.n.generators_t.p.plot.area(ax=plt.gca(), alpha=0.7)
+            self.n.generators_t.p.clip(lower=0).plot.area(ax=plt.gca(), alpha=0.7)
         if not self.n.storage_units_t.p.empty and 'battery' in self.n.storage_units_t.p.columns:
             self.n.storage_units_t.p['battery'].plot(ax=plt.gca(), color='orange', label='Battery Dispatch', linewidth=2)
         if not self.n.links_t.p1.empty and 'fuel_cell' in self.n.links_t.p1.columns:
@@ -203,15 +241,23 @@ class IESModel:
         if not self.n.links_t.p1.empty:
             # 电锅炉和各类热泵制热
             hp_heating_cols = [f"{prefix}_heating" for prefix in ['ashp', 'gshp_shallow', 'gshp_deep']]
+            # 增加对 p1 实际内容的检查
             cols = [c for c in (['electric_boiler'] + hp_heating_cols) if c in self.n.links_t.p1.columns]
             if cols:
-                self.n.links_t.p1[cols].plot.area(ax=plt.gca(), alpha=0.7)
+                # 获取 p1 数据并过滤极微小负值
+                heat_output_p1 = self.n.links_t.p1[cols].clip(lower=0)
+                if not heat_output_p1.empty and heat_output_p1.sum().sum() > 0.1:
+                    heat_output_p1.plot.area(ax=plt.gca(), alpha=0.7)
         
-        # 增加燃料电池产热
+        # 增加燃料电池产热 (p2)
         if not self.n.links_t.p2.empty and 'fuel_cell' in self.n.links_t.p2.columns:
-            self.n.links_t.p2['fuel_cell'].plot(ax=plt.gca(), color='magenta', label='Fuel Cell Output (Heat)', linewidth=2)
+            fc_heat = self.n.links_t.p2['fuel_cell'].clip(lower=0)
+            if fc_heat.sum() > 0.1:
+                fc_heat.plot(ax=plt.gca(), color='magenta', label='Fuel Cell Output (Heat)', linewidth=2)
 
-        plt.plot(self.n.loads_t.p_set['heat_load'], 'k--', label='Heat Load', linewidth=2)
+        # 始终绘制负荷线
+        heat_load = self.n.loads_t.p['heat_load'] if 'heat_load' in self.n.loads_t.p.columns else self.data['heat_load']
+        plt.plot(heat_load, 'k--', label='Heat Load', linewidth=2)
         plt.title("Heat Balance")
         plt.ylabel("Power [kW]")
         plt.legend(loc='upper right')
@@ -221,7 +267,7 @@ class IESModel:
         hp_cooling_cols = [f"{prefix}_cooling" for prefix in ['ashp', 'gshp_shallow', 'gshp_deep']]
         cols = [c for c in hp_cooling_cols if c in self.n.links_t.p1.columns]
         if not self.n.links_t.p1.empty and cols:
-            self.n.links_t.p1[cols].plot.area(ax=plt.gca(), alpha=0.7, label='HP Cooling Output')
+            self.n.links_t.p1[cols].clip(lower=0).plot.area(ax=plt.gca(), alpha=0.7, label='HP Cooling Output')
         plt.plot(self.n.loads_t.p_set['cool_load'], 'k--', label='Cooling Load', linewidth=2)
         plt.title("Cooling Balance")
         plt.ylabel("Power [kW]")
@@ -230,7 +276,7 @@ class IESModel:
         # 子图 4: 氢能平衡
         plt.subplot(5, 1, 4)
         if not self.n.links_t.p1.empty and 'electrolyzer' in self.n.links_t.p1.columns:
-            self.n.links_t.p1[['electrolyzer']].plot.area(ax=plt.gca(), alpha=0.7, color='lightgreen', label='Electrolyzer Output (H2)')
+            self.n.links_t.p1[['electrolyzer']].clip(lower=0).plot.area(ax=plt.gca(), alpha=0.7, color='lightgreen', label='Electrolyzer Output (H2)')
         if not self.n.storage_units_t.p.empty and 'h2_storage' in self.n.storage_units_t.p.columns:
             self.n.storage_units_t.p['h2_storage'].plot(ax=plt.gca(), color='blue', label='H2 Storage Dispatch', linewidth=2)
         

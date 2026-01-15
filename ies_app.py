@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import graphviz
+import io
 from ies_simulation import IESModel
 
 # 设置页面配置
@@ -44,9 +45,10 @@ if st.sidebar.checkbox("氢储能 (H2 Storage)"): selected_devices.append('h2_st
 
 st.sidebar.markdown("---")
 # 作者信息
+st.sidebar.image("https://github.com/gwyxjtu.png", width=100)
 st.sidebar.markdown("""
 ### 👨‍💻 作者信息 (Author)
-**作者**: 郭先生 (Mr. Guo)  
+**作者**: [gwyxjtu](https://github.com/gwyxjtu)  
 **项目**: 综合能源系统 (IES) 仿真平台  
 **技术栈**: PyPSA, Streamlit, Graphviz  
 **开源协议**: MIT
@@ -170,6 +172,10 @@ dot = graphviz.Digraph(comment='IES Topology')
 # 改为 TB (Top to Bottom) 布局，配合横向母线实现横向分布
 dot.attr(rankdir='TB', size='12,6!', ratio='fill')
 dot.attr(nodesep='0.5', ranksep='0.5')
+# 设置全局字体为 Times-Roman (即 Times New Roman) 且颜色为黑色
+dot.attr(fontname='Times-Roman', fontcolor='black')
+dot.attr('node', fontname='Times-Roman', fontcolor='black')
+dot.attr('edge', fontname='Times-Roman', fontcolor='black')
 
 # 计算各母线连接的组件数量以确定宽度
 elec_conn = 1  # 基础负载
@@ -208,10 +214,10 @@ w_h2 = str(max(2.5, h2_conn * 1.0))
 
 # 定义母线节点 (横向线条形状 - Horizontal Busbar)
 bus_style = {"shape": "box", "height": "0.04", "style": "filled", "fixedsize": "true", "penwidth": "0", "labelloc": "t", "fontsize": "12"}
-dot.node('Bus_Elec', 'Elec Bus', width=w_elec, fillcolor='blue', fontcolor='blue', **bus_style)
-dot.node('Bus_Heat', 'Heat Bus', width=w_heat, fillcolor='red', fontcolor='red', **bus_style)
-dot.node('Bus_Cool', 'Cool Bus', width=w_cool, fillcolor='cyan', fontcolor='cyan', **bus_style)
-dot.node('Bus_H2', 'H2 Bus', width=w_h2, fillcolor='green', fontcolor='green', **bus_style)
+dot.node('Bus_Elec', 'Elec Bus', width=w_elec, fillcolor='blue', fontcolor='black', **bus_style)
+dot.node('Bus_Heat', 'Heat Bus', width=w_heat, fillcolor='red', fontcolor='black', **bus_style)
+dot.node('Bus_Cool', 'Cool Bus', width=w_cool, fillcolor='cyan', fontcolor='black', **bus_style)
+dot.node('Bus_H2', 'H2 Bus', width=w_h2, fillcolor='green', fontcolor='black', **bus_style)
 
 # 定义负载节点
 dot.node('Load_Elec', 'Elec Load', shape='none', image=os.path.join(icon_dir, "eleload.png"), labelloc='b')
@@ -275,6 +281,8 @@ st.info("💡 提示：在左侧勾选设备，拓扑图将实时更新。")
 
 st.markdown("---")
 st.subheader("📊 数据预览 (负荷 & 电价)")
+plt.rcParams['font.family'] = 'Times New Roman'
+plt.rcParams['text.color'] = 'black'
 fig_load, ax_load = plt.subplots(figsize=(12, 5))
 ax_load.plot(input_data['elec_load'], label='Elec Load [kW]', color='blue', linewidth=2)
 ax_load.plot(input_data['heat_load'], label='Heat Load [kW]', color='red', linestyle='--')
@@ -378,12 +386,36 @@ if st.button("🚀 开始仿真", type="primary"):
             except Exception as e:
                 st.error(f"工况统计解析失败: {e}")
 
-            # --- 2. 显示结果图 ---
+            # --- 2. 导出 Excel 结果 ---
             st.markdown("---")
-            st.subheader("📈 仿真运行结果可视化")
-            fig = model.plot_results(save_path='temp_results.png', show=False)
-            st.pyplot(fig)
-            st.subheader("📋 运行指标")
+            st.subheader("📥 下载运行结果 (Export Results)")
+            
+            try:
+                # 获取所有结果
+                all_res = model.get_all_results()
+                
+                # 创建内存中的 Excel 文件
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    for sheet_name, df in all_res.items():
+                        if not df.empty:
+                            df.to_excel(writer, sheet_name=sheet_name)
+                
+                excel_data = output.getvalue()
+                
+                st.download_button(
+                    label="📂 点击下载全天运行数据 (Excel)",
+                    data=excel_data,
+                    file_name="ies_simulation_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary"
+                )
+                st.success("结果已汇总，点击上方按钮即可下载。")
+                
+            except Exception as e:
+                st.error(f"Excel 导出失败: {e}")
+
+            # 显示关键指标
             try:
                 total_cost = model.n.objective
                 st.metric("总运行成本", f"{total_cost:.2f} 元")
@@ -399,4 +431,4 @@ if st.button("🚀 开始仿真", type="primary"):
             st.error("仿真失败，请检查模型约束或求解器设置。")
 
 st.markdown("---")
-st.caption("© 2026 综合能源系统 (IES) 仿真平台 | 由 郭先生 开发 | Powered by PyPSA & Streamlit")
+st.caption("© 2026 综合能源系统 (IES) 仿真平台 | 由 [gwyxjtu](https://github.com/gwyxjtu) 开发 | Powered by PyPSA & Streamlit")
